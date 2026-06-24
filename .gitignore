@@ -1,4 +1,8 @@
-.env
+backend/.env
 .idea/
 __pycache__/
-Filenames_or_Directories_Common.txt
+frontend/node_modules
+frontend/.next/
+dist/
+build/
+*.pyc
