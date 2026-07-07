@@ -4,7 +4,9 @@ export async function reviewRepository(
     url: string,
     deep: boolean
 ) {
-    const response = await fetch(`${API_URL}/review`, {
+    const cleanedApiUrl = API_URL.replace(/\/+$/, "");
+
+    const response = await fetch(`${cleanedApiUrl}/review`, {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
