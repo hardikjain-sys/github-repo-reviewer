@@ -21,21 +21,16 @@ class ReviewRequest(BaseModel):
 
 
 @app.post("/review")
-def review(req: ReviewRequest):
+async def review(req: ReviewRequest):
     try:
-        return reviewRepo(
-            req.url,
-            req.deep
-        )
+        result = await reviewRepo(req.url, req.deep)
+        return result
 
     except ValueError as e:
-        raise HTTPException(
-            status_code=400,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=400, detail=str(e))
 
-    except Exception:
+    except Exception as e:
+        print(f"Backend Crash Error: {e}")
         raise HTTPException(
-            status_code=500,
-            detail="erro reviewing the repository."
+            status_code=500, detail="error reviewing the repository."
         )
