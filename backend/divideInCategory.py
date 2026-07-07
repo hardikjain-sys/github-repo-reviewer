@@ -15,11 +15,11 @@ def category(path: str) -> str:
     p = Path(path)
 
     name = p.name
-    name_lower = name.lower()
+    nameLower = name.lower()
 
     suffix = p.suffix.lower()
 
-    path_lower = path.lower()
+    pathL = path.lower()
 
     parts = [part.lower() for part in p.parts]
 
@@ -27,7 +27,7 @@ def category(path: str) -> str:
         rules = RULES[cat]
 
         for exact in rules["exact_names"]:
-            if name_lower == exact.lower():
+            if nameLower == exact.lower():
                 return cat
 
         for folder in rules["folder_prefixes"]:
@@ -42,11 +42,11 @@ def category(path: str) -> str:
                         return cat
 
         for sfx in rules["suffixes"]:
-            if name_lower.endswith(sfx.lower()):
+            if nameLower.endswith(sfx.lower()):
                 return cat
 
         for sub in rules["contains"]:
-            if sub.lower() in path_lower:
+            if sub.lower() in pathL:
                 return cat
         if suffix in [ext.lower() for ext in rules["extensions"]]:
             return cat

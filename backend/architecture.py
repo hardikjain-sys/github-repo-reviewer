@@ -1,18 +1,18 @@
+import re
 from pathlib import Path
-from collections import defaultdict
+from collections import Counter
+
 from dependencyParser import finalDependencies
-
-
+from parser.parse import parseCode
 from fetch import fetchAll, filePartial
 
 
-
-ENTRY_POINT_NAMES = {
+entryPointNames = {
     "main.py",
     "app.py",
     "server.py",
     "main.c",
-    "main.cpp"
+    "main.cpp",
     "manage.py",
     "index.js",
     "index.ts",
@@ -23,7 +23,7 @@ ENTRY_POINT_NAMES = {
 }
 
 
-IMPORTANT_CONFIGS = {
+importantConfigs = {
     "package.json",
     "package-lock.json",
     "requirements.txt",
@@ -40,48 +40,93 @@ IMPORTANT_CONFIGS = {
 }
 
 
+includeGuardPattern = re.compile(r"^#define\s+\w+_H$")
 
 
-from pathlib import Path
+def isIncludeGuard(macro):
+    return bool(includeGuardPattern.match(macro.strip()))
 
 
-from collections import Counter
+def trimParsedFile(parsed):
+    if not isinstance(parsed, dict):
+        return parsed
+
+    trimmedMacros = [
+        macro for macro in parsed.get("macros", [])
+        if not isIncludeGuard(macro)
+    ]
+
+    trimmedChunks = []
+
+    for chunk in parsed.get("chunks", []):
+        lineCount = chunk.get("line_count", 0)
+
+        if lineCount <= 1 and chunk.get("type") not in ("function", "class"):
+            continue
+
+        trimmedChunks.append({
+            "name": chunk.get("name"),
+            "type": chunk.get("type"),
+            "parentClass": chunk.get("parent_class"),
+            "lineCount": lineCount,
+        })
+
+    return {
+        "imports": parsed.get("imports", []),
+        "macros": trimmedMacros,
+        "chunks": trimmedChunks,
+    }
 
 
-def important_file_previews(
+def importantFileParsed(
     repoData,
-    entry_points,
-    important_configs,
-    central_modules_list
+    entryPoints,
+    configs,
+    centralModulesList
 ):
+    importantPaths = set()
 
-    important_paths = set()
+    importantPaths.update(entryPoints)
+    importantPaths.update(configs)
 
-    important_paths.update(entry_points)
+    for item in centralModulesList[:5]:
+        importantPaths.add(item["path"])
 
-    important_paths.update(important_configs)
-
-    for item in central_modules_list[:5]:
-        important_paths.add(item["path"])
-
-    previews = fetchAll(
-        list(important_paths),
+    contents = fetchAll(
+        list(importantPaths),
         repoData["metadata"]["owner"],
         repoData["metadata"]["repo"],
         repoData["metadata"]["branch"],
         10,
-        lambda o, r, b, p: filePartial(
-            o,
-            r,
-            b,
-            p,
-            maxBytes=4096
-        )
+        lambda o, r, b, p: filePartial(o, r, b, p, maxBytes=4096)
     )
 
-    return previews
+    parsed = {}
+    languageLookup = {}
 
-def central_modules(graph):
+    for file in repoData["categories"].get("source_code", []):
+        languageLookup[file["path"]] = file["language"]
+
+    for path, content in contents.items():
+        if content is None:
+            continue
+
+        language = languageLookup.get(path)
+
+        if language is None:
+            continue
+
+        result = parseCode(content, language, path)
+
+        if result is None:
+            continue
+
+        parsed[path] = trimParsedFile(result)
+
+    return parsed
+
+
+def centralModules(graph):
     incoming = Counter()
 
     for deps in graph.values():
@@ -93,36 +138,33 @@ def central_modules(graph):
     for module, count in incoming.most_common(10):
         result.append({
             "path": module,
-            "incoming_dependencies": count
+            "incomingDependencies": count
         })
 
     return result
 
-def repo_stats(repoData):
+
+def repoStats(repoData):
     stats = {
-        "total_files": 0,
-        "source_files": 0,
-        "test_files": 0,
-        "documentation_files": 0,
-        "configuration_files": 0,
+        "totalFiles": 0,
+        "sourceFiles": 0,
+        "testFiles": 0,
+        "documentationFiles": 0,
+        "configurationFiles": 0,
         "languages": Counter()
     }
 
     for category, files in repoData["categories"].items():
-
-        stats["total_files"] += len(files)
+        stats["totalFiles"] += len(files)
 
         if category == "source_code":
-            stats["source_files"] = len(files)
-
+            stats["sourceFiles"] = len(files)
         elif category == "tests":
-            stats["test_files"] = len(files)
-
+            stats["testFiles"] = len(files)
         elif category == "documentation":
-            stats["documentation_files"] = len(files)
-
+            stats["documentationFiles"] = len(files)
         elif category == "configuration":
-            stats["configuration_files"] = len(files)
+            stats["configurationFiles"] = len(files)
 
         for file in files:
             if "language" in file:
@@ -132,7 +174,8 @@ def repo_stats(repoData):
 
     return stats
 
-def build_module_lookup(repoData):
+
+def buildModuleLookup(repoData):
     lookup = {}
 
     for file in repoData["categories"].get("source_code", []):
@@ -145,7 +188,6 @@ def build_module_lookup(repoData):
 
         elif language in ["javascript", "typescript"]:
             stem = Path(path).stem
-
             lookup[stem] = path
 
             parent = str(Path(path).with_suffix(""))
@@ -165,105 +207,91 @@ def build_module_lookup(repoData):
     return lookup
 
 
-def resolve_dependency_graph(import_graph, repoData):
-    lookup = build_module_lookup(repoData)
-
+def resolveDependencyGraph(importGraph, repoData):
+    lookup = buildModuleLookup(repoData)
     graph = {}
 
     for file in repoData["categories"].get("source_code", []):
         path = file["path"]
+        imports = importGraph.get(path, [])
 
-        imports = import_graph.get(path, [])
-
-        internal_deps = []
-        external_deps = []
+        internalDeps = []
 
         for imp in imports:
-
             resolved = None
 
             if imp in lookup:
                 resolved = lookup[imp]
-
             else:
-                imp_last = imp.split(".")[-1]
+                impLast = imp.split(".")[-1]
 
-                if imp_last in lookup:
-                    resolved = lookup[imp_last]
+                if impLast in lookup:
+                    resolved = lookup[impLast]
 
             if resolved:
-                internal_deps.append(resolved)
+                internalDeps.append(resolved)
             else:
-                internal_deps.append(imp)
+                internalDeps.append(imp)
 
         graph[path] = {
-            "structure": sorted(set(internal_deps))
+            "structure": sorted(set(internalDeps))
         }
 
     return graph
 
-def build_dependency_graph(repoData, contents):
 
+def buildDependencyGraph(repoData, contents):
     graph = {}
 
     for file in repoData["categories"].get("source_code", []):
-
         content = contents.get(file["path"])
 
         if content is None:
             continue
 
-        deps = finalDependencies(
-            file["language"],
-            content
-        )
-
+        deps = finalDependencies(file["language"], content)
         graph[file["path"]] = deps
 
     return graph
 
 
-def build_directory_tree(repoData):
-    tree = {}
+def buildDirectoryTree(repoData):
+    paths = []
 
     for category in repoData["categories"].values():
         for file in category:
-            current = tree
+            paths.append(file["path"])
 
-            for part in Path(file["path"]).parts:
-                current = current.setdefault(part, {})
-
-    return tree
+    return sorted(paths)
 
 
-def get_entry_points(repoData):
-    entry_points = []
+def getEntryPoints(repoData):
+    entryPoints = []
 
     for category in repoData["categories"].values():
         for file in category:
             name = Path(file["path"]).name
 
-            if name in ENTRY_POINT_NAMES:
-                entry_points.append(file["path"])
+            if name in entryPointNames:
+                entryPoints.append(file["path"])
 
-    return sorted(entry_points)
+    return sorted(entryPoints)
 
 
-def get_important_configs(repoData):
+def getImportantConfigs(repoData):
     configs = []
 
     for category in repoData["categories"].values():
         for file in category:
             name = Path(file["path"]).name
 
-            if name in IMPORTANT_CONFIGS:
+            if name in importantConfigs:
                 configs.append(file["path"])
 
     return sorted(configs)
 
-def build_architecture_context(repoData):
 
-
+def buildArchitectureContext(repoData):
     sourcePaths = [
         f["path"]
         for f in repoData["categories"].get("source_code", [])
@@ -278,42 +306,23 @@ def build_architecture_context(repoData):
         filePartial
     )
 
-    raw_graph = build_dependency_graph(
-        repoData,
-        contents
-    )
+    rawGraph = buildDependencyGraph(repoData, contents)
+    dependencyGraph = resolveDependencyGraph(rawGraph, repoData)
 
-    dependency_graph = resolve_dependency_graph(
-        raw_graph,
-        repoData
-    )
-
-    entry_points = get_entry_points(repoData)
-
-    important_configs = get_important_configs(repoData)
-
-    central = central_modules(
-        dependency_graph
-    )
+    entryPoints = getEntryPoints(repoData)
+    configs = getImportantConfigs(repoData)
+    central = centralModules(dependencyGraph)
 
     return {
-        "directory_tree": build_directory_tree(repoData),
-
-        "entry_points": entry_points,
-
-        "important_configs": important_configs,
-
-        "module_dependency_graph": dependency_graph,
-
-        "repo_stats": repo_stats(repoData),
-
-        "central_modules": central,
-
-        "important_file_previews": important_file_previews(
+        "directoryTree": buildDirectoryTree(repoData),
+        "entryPoints": entryPoints,
+        "importantConfigs": configs,
+        "repoStats": repoStats(repoData),
+        "centralModules": central,
+        "parsedFiles": importantFileParsed(
             repoData,
-            entry_points,
-            important_configs,
+            entryPoints,
+            configs,
             central
         )
     }
-

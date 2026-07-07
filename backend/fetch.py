@@ -25,7 +25,7 @@ def fetchAll(paths, owner, repo, branch, workers, fetchFn):
 
 
 
-def filePartial(own, rep, wBranch, path, maxBytes=512):
+def filePartial(own, rep, wBranch, path, maxBytes=12000):
     u = f"https://raw.githubusercontent.com/{own}/{rep}/{wBranch}/{path}"
 
     r = session.get(
@@ -34,13 +34,13 @@ def filePartial(own, rep, wBranch, path, maxBytes=512):
     )
 
     if r.status_code not in (200, 206):
-        print('error')
+        # print('error',r.status_code , path, "\n")
         return None
-
+    # print("no error", path , "\n")
     return r.text
 
 
-def fileCode(own, rep, wBranch, path, maxBytes=300_000):
+def fileCode(own, rep, wBranch, path, maxBytes=300000):
     u = f"https://raw.githubusercontent.com/{own}/{rep}/{wBranch}/{path}"
     r = session.get(u)
     if r.status_code != 200:
@@ -61,8 +61,18 @@ def getTree(own, rep, wBranch):
 
 
 def fromUrl(url):
-    parts = urlparse(url).path.strip("/").split("/")
-    owner = parts[0]
-    repo  = parts[1]
+
+    parsed = urlparse(url)
+
+    if parsed.netloc != "github.com":
+        raise ValueError("Invalid URL")
+
+    parts = [p for p in parsed.path.split("/") if p]
+
+    if len(parts) != 2:
+        raise ValueError("Invalid URL")
+
+    owner, repo = parts
+
     return owner, repo
 

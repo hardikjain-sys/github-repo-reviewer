@@ -1,10 +1,10 @@
 
 "use client";
-
+import { Loader2 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-
+import { reviewRepository } from "@/lib/api";
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&display=swap');
 </style>
@@ -13,10 +13,10 @@ import { Switch } from "@/components/ui/switch";
 
 function AnalysisCard({
   title,
-  body,
+  review,
 }: {
   title: string;
-  body: string;
+  review: any;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -43,7 +43,70 @@ function AnalysisCard({
       {open && (
         <>
           <div className="my-4 h-px bg-zinc-800" />
-          <p style={{ fontFamily: "var(--font-geist-sans)" }} className="text-sm leading-relaxed text-zinc-500">{body}</p>
+          <div
+  style={{ fontFamily: "var(--font-geist-sans)" }}
+  className="space-y-5 text-sm text-zinc-400"
+>
+  <div>
+    <div className="mb-2 flex items-center gap-3">
+      <span className="rounded bg-zinc-800 px-2 py-1 text-xs">
+        {review.grade}
+      </span>
+
+      <span className="text-zinc-500">
+        Score: {review.score ?? review.overall_score}
+      </span>
+    </div>
+
+    <p className="leading-relaxed">
+      {review.summary}
+    </p>
+  </div>
+
+  <div>
+    <h3 className="mb-2 text-zinc-100 font-medium">
+      Strengths
+    </h3>
+
+    <ul className="list-disc space-y-1 pl-5">
+      {(review.strengths || []).map((item: string) => (
+        <li key={item}>{item}</li>
+      ))}
+    </ul>
+  </div>
+
+  <div>
+    <h3 className="mb-2 text-zinc-100 font-medium">
+      Issues
+    </h3>
+
+    <ul className="list-disc space-y-1 pl-5">
+      {(
+        review.issues ||
+        review.critical_issues ||
+        []
+      ).map((item: string) => (
+        <li key={item}>{item}</li>
+      ))}
+    </ul>
+  </div>
+
+  <div>
+    <h3 className="mb-2 text-zinc-100 font-medium">
+      Recommendations
+    </h3>
+
+    <ul className="list-disc space-y-1 pl-5">
+      {(
+        review.recommendations ||
+        review.top_recommendations ||
+        []
+      ).map((item: string) => (
+        <li key={item}>{item}</li>
+      ))}
+    </ul>
+  </div>
+</div>
         </>
       )}
     </div>
@@ -53,7 +116,51 @@ function AnalysisCard({
 export default function Home() {
 
   const [showAnalysis, setShowAnalysis] = useState(false);
-  const [deepAnalysis, setDeepAnalysis] = useState(false);
+  const [repoUrl, setRepoUrl] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [review, setReview] = useState<any>(null);
+  const [error, setError] = useState("");
+
+  const handleReview = async () => {
+
+  setError("");
+
+  if (!repoUrl.trim()) {
+    setError("Please enter a GitHub repository URL.");
+    return;
+  }
+
+  const githubUrl =
+    /^https:\/\/github\.com\/[^\/]+\/[^\/]+\/?$/;
+
+  if (!githubUrl.test(repoUrl.trim())) {
+    setError("Please enter a valid GitHub repository URL.");
+    return;
+  }
+
+  setLoading(true);
+
+  try {
+
+    const response = await reviewRepository(
+      repoUrl,
+      false
+    );
+
+    setReview(response.data);
+    setShowAnalysis(true);
+
+  } catch (err: any) {
+
+    setError(err.message);
+
+  } finally {
+
+    setLoading(false);
+
+  }
+
+};
 
   return (
     <main className="grid-bg min-h-screen bg-black px-6 py-32">
@@ -75,74 +182,83 @@ export default function Home() {
 
         <div className="mx-auto mt-12 max-w-3xl">
           <input
-            type="text"
-            style={{ fontFamily: "var(--font-geist-sans)" }}
-            placeholder="URL - https://github.com/username/repo"
-            className="w-full rounded-full border border-zinc-800 bg-black px-6 py-4 text-zinc-100 placeholder:text-zinc-600 focus:border-zinc-600 focus:outline-none"
-          />
+  type="text"
+  value={repoUrl}
+  onChange={(e) => setRepoUrl(e.target.value)}
+  style={{ fontFamily: "var(--font-geist-sans)" }}
+  placeholder="URL - https://github.com/username/repo"
+  className="w-full rounded-full border border-zinc-800 bg-black px-6 py-4 text-zinc-100 placeholder:text-zinc-600 focus:border-zinc-600 focus:outline-none"
+/>
         </div>
 
-        <div className="mt-6 flex items-center justify-center gap-3">
-  <Switch
-    checked={deepAnalysis}
-    onCheckedChange={setDeepAnalysis}
-  />
-
-  <span
-    className="text-sm text-zinc-400"
+        {error && (
+  <p
+    className="mt-3 text-sm text-red-500"
     style={{ fontFamily: "var(--font-geist-sans)" }}
   >
-    Deep Analysis
-    <span className="ml-2 text-zinc-600">
-      (takes longer)
-    </span>
-  </span>
-</div>
+    {error}
+  </p>
+)}
+
+        
 
         <div className="mx-auto mt-12">
           <Button
-            onClick={() => setShowAnalysis(true)}
-            style={{
-              fontFamily: "var(--font-geist-sans)",
-              fontSize: "1.5rem",
-              backgroundColor: "white",
-              color: "black",
-              cursor: "pointer",
-              padding: "1rem 1rem",
-              fontWeight: 350,
-            }}
-          >
-            GO
-          </Button>
+  onClick={handleReview}
+  disabled={loading}
+  style={{
+    fontFamily: "var(--font-geist-sans)",
+    fontSize: "1.5rem",
+    backgroundColor: "white",
+    color: "black",
+    cursor: loading ? "not-allowed" : "pointer",
+    padding: "1rem 1rem",
+    fontWeight: 350,
+  }}
+>
+  {loading ? (
+    <div className="flex items-center gap-2">
+      <Loader2 className="h-5 w-5 animate-spin" />
+      Loading
+    </div>
+  ) : (
+    "GO"
+  )}
+</Button>
         </div>
 
-       {showAnalysis && (
+{showAnalysis && review && (
   <div className="mx-auto mt-24 max-w-5xl grid gap-4 text-left md:grid-cols-2">
+
     {[
       {
         title: "Architecture",
-        
-        body: "The repository follows a modular architecture with clear separation between components, services, and utility modules.",
+        review: review.architecture_review,
       },
       {
         title: "Dependencies",
-        body: "The project uses several third-party libraries for routing, state management, and data processing.",
+        review: review.dependency_review,
       },
       {
         title: "Documentation",
-        body: "Documentation is available for setup and usage, with examples covering common workflows.",
+        review: review.documentation_review,
       },
       {
         title: "Testing",
-        body: "Unit tests cover the core functionality, while integration tests validate end-to-end workflows.",
+        review: review.testing_review,
       },
       {
         title: "Code Quality",
-        body: "The codebase demonstrates consistent naming conventions, maintainable abstractions, and good project organization.",
+        review: review.codeQuality_review,
       },
-    ].map(({ title, body }) => (
-      <AnalysisCard key={title} title={title} body={body} />
+    ].map(({ title, review }) => (
+      <AnalysisCard
+        key={title}
+        title={title}
+        review={review}
+      />
     ))}
+
   </div>
 )}
       </div>

@@ -14,12 +14,10 @@ def stats(repoData):
     fingerprint["config_files"] = len(repoData["categories"].get("configuration", []))
     fingerprint["ci_cd_files"] = len(repoData["categories"].get("ci_cd", []))
 
-    # Booleans
     fingerprint["has_tests"] = fingerprint["test_files"] > 0
     fingerprint["has_docs"] = fingerprint["documentation_files"] > 0
     fingerprint["has_ci"] = fingerprint["ci_cd_files"] > 0
 
-    # Language distribution
     languages = Counter()
 
     for file in repoData["categories"].get("source_code", []):
