@@ -228,6 +228,14 @@ export default function Home() {
         </div>
 
 {showAnalysis && review && (
+
+<div className="mx-auto mt-24 max-w-5xl space-y-4">
+
+    <AnalysisCard
+      title="Overall Review"
+      review={review.final_review}
+    />
+
   <div className="mx-auto mt-24 max-w-5xl grid gap-4 text-left md:grid-cols-2">
 
     {[
@@ -259,6 +267,7 @@ export default function Home() {
       />
     ))}
 
+  </div>
   </div>
 )}
       </div>
